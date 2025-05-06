@@ -15,15 +15,27 @@ s3_client = boto3.client('s3')
 def lambda_handler(event, context):
     query = f"""
     SELECT
-      eventSource,
-      userAgent,
-      userIdentity.type AS principal_type,
-      COALESCE(userIdentity.arn, 'UNKNOWN') AS principal,
-      eventName,
-      COUNT(*) AS frequency
-    FROM {ATHENA_TABLE}
+    eventSource,
+    userAgent,
+    userIdentity.type AS principal_type,
+    COALESCE(
+        userIdentity.sessionContext.sessionIssuer.arn,
+        userIdentity.arn,
+        userIdentity.invokedBy,
+        'UNKNOWN'
+    ) AS principal,
+    eventName,
+    COUNT(*) AS frequency
+    FROM cloudtrail_logs_aws_cloudtrail_logs_471112829906_7bccabc1
     WHERE eventTime BETWEEN '2025-05-01T00:00:00Z' AND '2025-06-01T00:00:00Z'
-    GROUP BY eventSource, userAgent, userIdentity.type, COALESCE(userIdentity.arn, 'UNKNOWN'), eventName
+    GROUP BY eventSource, userAgent, userIdentity.type, 
+            COALESCE(
+                userIdentity.sessionContext.sessionIssuer.arn,
+                userIdentity.arn,
+                userIdentity.invokedBy,
+                'UNKNOWN'
+            ),
+            eventName
     ORDER BY frequency DESC
     LIMIT 1000;
     """
