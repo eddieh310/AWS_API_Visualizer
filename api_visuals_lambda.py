@@ -74,7 +74,7 @@ def lambda_handler(event, context):
     top5 = list(csv_reader)[:5]
 
     # Format text summary
-    summary_lines = ["Top 5 API Calls by IAM Principal:\n"]
+    summary_lines = ["Top 5 API Calls for S3, DynamoDb, and Lambda  by IAM Principal:\n"]
     for i, row in enumerate(top5, 1):
         event_source, user_agent, principal_type, principal, event_name, frequency = row
         summary_lines.append(
