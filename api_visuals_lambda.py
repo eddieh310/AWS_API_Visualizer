@@ -1,12 +1,11 @@
 import boto3
-import pandas as pd
-import plotly.express as px
 import time
+import csv
 import io
-import uuid
+from datetime import datetime
 
 ATHENA_TABLE = "cloudtrail_logs_aws_cloudtrail_logs_471112829906_7bccabc1"
-ATHENA_DATABASE = "default"  # Replace if different
+ATHENA_DATABASE = "default"
 ATHENA_QUERY_BUCKET = "my-athena-queries-1"
 DASHBOARD_BUCKET = "api-dashboard-bucket55"
 
@@ -49,39 +48,41 @@ def lambda_handler(event, context):
     if state != 'SUCCEEDED':
         raise Exception(f"Athena query failed: {state}")
 
-    # Get the CSV result from S3
+    # Download query result CSV
     result_key = f'query-results/{query_execution_id}.csv'
-    csv_obj = s3_client.get_object(Bucket=ATHENA_QUERY_BUCKET, Key=result_key)
-    df = pd.read_csv(io.BytesIO(csv_obj['Body'].read()))
+    result_obj = s3_client.get_object(Bucket=ATHENA_QUERY_BUCKET, Key=result_key)
+    csv_bytes = result_obj['Body'].read()
+    csv_str = csv_bytes.decode('utf-8')
+    csv_reader = csv.reader(io.StringIO(csv_str))
 
-    # Create a Plotly bar chart
-    fig = px.bar(
-        df,
-        x='eventName',
-        y='frequency',
-        color='principal',
-        hover_data=['eventSource', 'userAgent', 'principal_type'],
-        title="Top AWS API Calls by Principal"
-    )
-    html_str = fig.to_html(full_html=True)
+    # Skip header row
+    headers = next(csv_reader)
 
-    # Save HTML to memory and upload
-    html_key = f"dashboards/api_dashboard_{uuid.uuid4().hex[:8]}.html"
+    # Extract top 5 rows
+    top5 = list(csv_reader)[:5]
+
+    # Format text summary
+    summary_lines = ["Top 5 API Calls by IAM Principal:\n"]
+    for i, row in enumerate(top5, 1):
+        event_source, user_agent, principal_type, principal, event_name, frequency = row
+        summary_lines.append(
+            f"{i}. {event_name} ({frequency} times) - Principal: {principal} [{principal_type}]"
+        )
+    summary_text = "\n".join(summary_lines)
+
+    # Save to S3 as a .txt file
+    timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    txt_key = f"dashboard-summary/api_summary_{timestamp}.txt"
+
     s3_client.put_object(
         Bucket=DASHBOARD_BUCKET,
-        Key=html_key,
-        Body=html_str,
-        ContentType='text/html'
+        Key=txt_key,
+        Body=summary_text.encode("utf-8"),
+        ContentType="text/plain"
     )
 
-    # Optionally generate presigned URL
-    url = s3_client.generate_presigned_url(
-        'get_object',
-        Params={'Bucket': DASHBOARD_BUCKET, 'Key': html_key},
-        ExpiresIn=3600  # 1 hour
-    )
 
     return {
         'statusCode': 200,
-        'body': f"Dashboard uploaded: {url}"
+        'message': 'Text summary created and uploaded successfully.'
     }
